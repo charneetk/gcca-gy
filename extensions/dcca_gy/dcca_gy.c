@@ -16,15 +16,17 @@ static int ccr_handler(struct msg **msg, struct avp *avp, struct session *sess,
     union avp_value val;
     uint32_t result_code = 2001;
 
-    CHECK_FCT(fd_msg_new_answer_from_req(fd_g_config->cnf_dict, msg, 0));
+    CHECK_FCT_DO(fd_msg_new_answer_from_req(fd_g_config->cnf_dict, msg, 0),{TRACE_DEBUG(INFO,"Failed to create CCA answer"); return ENOENT;});
     ans = *msg;
 
-    CHECK_FCT(fd_msg_avp_new(dict_avp_result_code, 0, &avp_result));
+    CHECK_FCT_DO(fd_msg_avp_new(dict_avp_result_code, 0, &avp_result),{TRACE_DEBUG(INFO,"Failed to create Result-Code AVP")});
     val.i32 = result_code;
+
     CHECK_FCT(fd_msg_avp_setvalue(avp_result, &val));
     CHECK_FCT(fd_msg_avp_add(ans, MSG_BRW_LAST_CHILD, avp_result));
 
-    CHECK_FCT(fd_msg_send(&ans, NULL, NULL));
+    CHECK_FCT_DO(fd_msg_send(&ans, NULL, NULL),{TRACE_DEBUG(INFO,"Failed to send CCA")});
+
     TRACE_DEBUG(INFO, "Sent CCA with Result-Code %u", result_code);
 
     return 0;
@@ -37,22 +39,28 @@ int fd_ext_init(void) {
     // Find application (Gy)
     struct dict_object *app = NULL;
     struct dict_application_data data = { DCCA_APPLICATION_ID, "DCCA" };
-    CHECK_FCT(fd_dict_search(fd_g_config->cnf_dict, DICT_APPLICATION, APPLICATION_BY_ID, &data, &app, ENOENT));
+    
+   CHECK_FCT_DO(fd_dict_search(fd_g_config->cnf_dict, DICT_APPLICATION, APPLICATION_BY_ID,
+                                &data, &app, ENOENT),
+                 { TRACE_DEBUG(INFO, "Application not found"); return ENOENT; });
 
-    CHECK_FCT(fd_dict_search(fd_g_config->cnf_dict,
+    CHECK_FCT_DO(fd_dict_search(fd_g_config->cnf_dict,
                              DICT_AVP,
                              AVP_BY_NAME,
                              "Result-Code",
                              &dict_avp_result_code,
-                             ENOENT));
+                             ENOENT),{TRACE_DEBUG(INFO,"AVP not found"); return ENOENT;});
+
+    CHECK_FCT_DO(fd_disp_app_support(app, NULL, 1, 0),
+                 { TRACE_DEBUG(INFO, "Failed to advertise application support"); return EINVAL; });                         
 
     // CCR command
-    CHECK_FCT(fd_dict_search(fd_g_config->cnf_dict,
+    CHECK_FCT_DO(fd_dict_search(fd_g_config->cnf_dict,
                              DICT_COMMAND,
                              CMD_BY_NAME,
                              "Credit-Control-Request",
                              &dict_cmd_ccr,
-                             ENOENT));
+                             ENOENT),{TRACE_DEBUG(INFO,"CCR command not found"); return ENOENT;});
 
     // Register CCR handler
     struct disp_when when;
